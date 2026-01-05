@@ -231,6 +231,13 @@ function New-NamespaceIfMissing {
 }
 
 function Get-InstalledIstioVersion {
+
+    # First check if namespace exists
+    $nsExists = kubectl get namespace $IstioNamespace --ignore-not-found -o name 2>$null
+    if (-not $nsExists) {
+        return $null
+    }
+    
     # Check istiod deployment for version label
     $version = kubectl get deployment istiod -n $IstioNamespace -o jsonpath='{.metadata.labels.app\.kubernetes\.io/version}' 2>$null
     if ($LASTEXITCODE -eq 0 -and $version) {
@@ -348,7 +355,11 @@ Continuing anyway - this may cause issues with PersistentVolumeClaims.
 "@ -ForegroundColor Yellow
 }
 else {
-    $defaultSC = kubectl get storageclass -o jsonpath='{.items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")].metadata.name}' 2>$null
+    $scList = kubectl get storageclass -o json 2>$null | ConvertFrom-Json
+    $defaultSC = $scList.items | Where-Object { 
+        $_.metadata.annotations.'storageclass.kubernetes.io/is-default-class' -eq 'true' 
+    } | Select-Object -First 1 -ExpandProperty metadata | Select-Object -ExpandProperty name
+
     if ($defaultSC) {
         Write-Success "Default StorageClass found: $defaultSC"
     }
