@@ -1,0 +1,84 @@
+# Waypoint Proxy: Enable L7 traffic management in Ambient mode
+#
+# IDEMPOTENCY: Safe to apply multiple times (kubectl apply -f)
+#   - Creates resource if missing
+#   - Updates to desired state if exists
+#
+# PURPOSE: L7 traffic management in Ambient mesh
+#   - Ambient mode uses ztunnel for L4 (mTLS, basic allow/deny)
+#   - Waypoint proxy adds L7 capabilities:
+#     - HTTP request routing (VirtualService)
+#     - Header-based routing
+#     - Retries and timeouts
+#     - Circuit breaking
+#     - Traffic mirroring
+#
+# WHEN REQUIRED:
+#   - VirtualService with HTTP match rules
+#   - DestinationRule with traffic policy
+#   - Any L7 (application-layer) traffic shaping
+#
+# WHEN NOT REQUIRED:
+#   - Basic mTLS encryption (ztunnel handles this)
+#   - Simple AuthorizationPolicies without L7 conditions
+#   - L4 load balancing
+#
+# USAGE:
+#   - Bootstrap applies this when -DataplaneMode ambient
+#   - Manual: kubectl apply -f k8s/dev/ambient/waypoint-platform-dev.yaml
+#
+# HOW IT WORKS:
+#   - Creates a Kubernetes Gateway resource (Gateway API)
+#   - Istio deploys waypoint proxy pods in the namespace
+#   - Traffic to services enrolled in waypoint flows through it
+#   - Waypoint is namespace-scoped by default
+#
+# SERVICE ENROLLMENT:
+#   - By default, waypoint handles traffic for the entire namespace
+#   - For service-specific waypoints, use gatewayClassName: istio-waypoint
+#     with service-level annotations
+#
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: waypoint
+  namespace: platform-dev
+  labels:
+    app.kubernetes.io/managed-by: bootstrap-script
+    app.kubernetes.io/part-of: platform-ambient
+    # Standard Istio waypoint label
+    istio.io/waypoint-for: all
+spec:
+  # This gatewayClassName tells Istio to create a waypoint proxy
+  gatewayClassName: istio-waypoint
+  listeners:
+    # Waypoint listener - handles all L7 traffic for enrolled workloads
+    - name: mesh
+      port: 15008
+      protocol: HBONE
+      # AllowedRoutes not strictly required for waypoint
+      # but included for clarity
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+# Example: Enrolling a specific service in the waypoint
+# Uncomment and modify for service-specific waypoint routing
+#
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: my-app
+#   namespace: platform-dev
+#   labels:
+#     app: my-app
+#   annotations:
+#     # This annotation enrolls the service in the waypoint
+#     istio.io/use-waypoint: waypoint
+# spec:
+#   selector:
+#     app: my-app
+#   ports:
+#     - name: http
+#       port: 80
+#       targetPort: 8080

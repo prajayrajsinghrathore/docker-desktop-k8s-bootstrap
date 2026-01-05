@@ -1,0 +1,143 @@
+# VirtualService: Traffic splitting for canary deployments
+#
+# IDEMPOTENCY: Safe to apply multiple times (kubectl apply -f)
+#   - Creates resource if missing
+#   - Updates to desired state if exists
+#
+# PURPOSE: Weighted traffic distribution between versions
+#   - Gradually shift traffic from stable to canary
+#   - Monitor canary health before increasing percentage
+#   - Instant rollback by setting canary weight to 0
+#
+# CANARY ROLLOUT STRATEGY:
+#   1. Deploy canary (v2) alongside stable (v1)
+#   2. Start with 90/10 split (this file's default)
+#   3. Monitor metrics and errors
+#   4. Gradually increase: 80/20 → 50/50 → 20/80 → 0/100
+#   5. Once confident, remove v1 deployment
+#
+# PREREQUISITES:
+#   - canary-destinationrule.yaml applied (defines subsets)
+#   - Service 'my-app' exists with pods labeled version: v1 and v2
+#   - AMBIENT MODE: waypoint proxy must be running for L7 routing
+#
+# CUSTOMIZATION:
+#   - Change 'my-app' to your actual service name
+#   - Adjust weights for desired traffic split
+#   - Add match rules for header-based routing (testing canary)
+#
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: my-app
+  namespace: platform-dev
+  labels:
+    app.kubernetes.io/managed-by: bootstrap-script
+    app.kubernetes.io/part-of: platform-traffic
+spec:
+  # Target host - must match the Kubernetes Service name
+  hosts:
+    - my-app
+  
+  http:
+    # -----------------------------------------------------------------
+    # Rule 1: Header-based canary testing
+    # Allows developers to test canary without affecting other traffic
+    # -----------------------------------------------------------------
+    - name: canary-test
+      match:
+        - headers:
+            x-canary:
+              exact: "true"
+      route:
+        - destination:
+            host: my-app
+            subset: canary
+          weight: 100
+      # Canary-specific timeouts
+      timeout: 30s
+      retries:
+        attempts: 2
+        perTryTimeout: 10s
+        retryOn: 5xx,reset,connect-failure
+    
+    # -----------------------------------------------------------------
+    # Rule 2: Weighted traffic split (main canary rule)
+    # Adjust weights to control rollout percentage
+    # -----------------------------------------------------------------
+    - name: canary-rollout
+      route:
+        # Stable (v1) - receives most traffic
+        - destination:
+            host: my-app
+            subset: stable
+          weight: 90
+        # Canary (v2) - receives small percentage
+        - destination:
+            host: my-app
+            subset: canary
+          weight: 10
+      # Timeout and retry policy
+      timeout: 30s
+      retries:
+        attempts: 3
+        perTryTimeout: 10s
+        retryOn: 5xx,reset,connect-failure,retriable-4xx
+
+# -----------------------------------------------------------------
+# ROLLOUT PROGRESSION EXAMPLES
+# -----------------------------------------------------------------
+# Copy and paste these weight configurations as you progress:
+#
+# Initial canary (10%):
+#   - subset: stable, weight: 90
+#   - subset: canary, weight: 10
+#
+# Growing canary (25%):
+#   - subset: stable, weight: 75
+#   - subset: canary, weight: 25
+#
+# Half-and-half (50%):
+#   - subset: stable, weight: 50
+#   - subset: canary, weight: 50
+#
+# Canary majority (75%):
+#   - subset: stable, weight: 25
+#   - subset: canary, weight: 75
+#
+# Full cutover (100%):
+#   - subset: stable, weight: 0
+#   - subset: canary, weight: 100
+#
+# Instant rollback:
+#   - subset: stable, weight: 100
+#   - subset: canary, weight: 0
+# -----------------------------------------------------------------
+
+# -----------------------------------------------------------------
+# BLUE-GREEN ALTERNATIVE
+# -----------------------------------------------------------------
+# For blue-green deployments, use 100/0 weights:
+#
+# Blue live:
+#   route:
+#     - destination:
+#         host: my-app
+#         subset: blue
+#       weight: 100
+#     - destination:
+#         host: my-app
+#         subset: green
+#       weight: 0
+#
+# Cutover to green:
+#   route:
+#     - destination:
+#         host: my-app
+#         subset: blue
+#       weight: 0
+#     - destination:
+#         host: my-app
+#         subset: green
+#       weight: 100
+# -----------------------------------------------------------------

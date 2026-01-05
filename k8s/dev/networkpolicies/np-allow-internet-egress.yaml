@@ -1,0 +1,69 @@
+# NetworkPolicy: Allow internet egress from platform-dev
+#
+# IDEMPOTENCY: Safe to apply multiple times (kubectl apply -f)
+#   - Creates resource if missing
+#   - Updates to desired state if exists
+#
+# USAGE: OPTIONAL - Only apply when internet access is needed
+#   - Bootstrap applies this when -AllowInternetEgress is used
+#   - Manual: kubectl apply -f k8s/dev/networkpolicies/np-allow-internet-egress.yaml
+#   - Remove: kubectl delete -f k8s/dev/networkpolicies/np-allow-internet-egress.yaml
+#
+# PURPOSE:
+#   - Allows pods to reach external internet services
+#   - Useful for development requiring external APIs
+#   - NOT recommended for production-like testing
+#
+# SECURITY CONSIDERATIONS:
+#   - Opens egress to ANY external IP
+#   - Consider Istio ServiceEntry for fine-grained control
+#   - Production should use explicit allowlists
+#   - Excludes internal Kubernetes networks (10.0.0.0/8, etc.)
+#
+# SCOPE: Namespace-level (platform-dev only)
+#   - podSelector: {} means "all pods in this namespace"
+#   - Allows egress to external IPs only (not internal cluster)
+#
+# ALTERNATIVE: Use Istio ServiceEntry for production-like control
+#   - ServiceEntry gives observability into external calls
+#   - ServiceEntry can apply retry/timeout policies
+#   - See docs for ServiceEntry examples
+#
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internet-egress
+  namespace: platform-dev
+  labels:
+    app.kubernetes.io/managed-by: bootstrap-script
+    app.kubernetes.io/part-of: platform-security
+    # Mark as optional for easy identification
+    app.kubernetes.io/component: optional
+spec:
+  # Empty podSelector = applies to all pods in namespace
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Allow egress to external networks (internet)
+    # This uses ipBlock to allow external IPs while excluding internal ranges
+    - to:
+        # Allow all external IPs except private ranges
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Exclude private networks (RFC 1918)
+              - 10.0.0.0/8       # Class A private
+              - 172.16.0.0/12    # Class B private (includes Docker networks)
+              - 192.168.0.0/16   # Class C private
+              # Exclude link-local
+              - 169.254.0.0/16   # APIPA / link-local
+              # Exclude loopback
+              - 127.0.0.0/8      # Localhost
+      ports:
+        # HTTPS (most external APIs)
+        - protocol: TCP
+          port: 443
+        # HTTP (some APIs, package repos)
+        - protocol: TCP
+          port: 80

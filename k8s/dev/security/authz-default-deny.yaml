@@ -1,0 +1,32 @@
+# AuthorizationPolicy: Default DENY all traffic in platform-dev
+#
+# IDEMPOTENCY: Safe to apply multiple times (kubectl apply -f)
+#   - Creates resource if missing
+#   - Updates to desired state if exists
+#
+# SECURITY: Zero Trust posture
+#   - Denies ALL traffic by default
+#   - Explicit allow policies must be created for any communication
+#   - Works with both sidecar and ambient dataplane modes
+#
+# SCOPE: Namespace-level (platform-dev only)
+#   - Empty selector {} means "all workloads in this namespace"
+#   - Does not affect other namespaces
+#
+# IMPORTANT: This policy alone blocks ALL traffic. Combine with:
+#   - authz-allow-intra-namespace.yaml (allows pod-to-pod within namespace)
+#   - authz-allow-from-ingressgateway.yaml (allows gateway->service, optional)
+#
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: default-deny
+  namespace: platform-dev
+  labels:
+    app.kubernetes.io/managed-by: bootstrap-script
+    app.kubernetes.io/part-of: platform-security
+spec:
+  # Empty selector = applies to all workloads in namespace
+  selector: {}
+  # No rules = deny everything (implicit deny when action is missing)
+  # This is equivalent to action: DENY with no rules

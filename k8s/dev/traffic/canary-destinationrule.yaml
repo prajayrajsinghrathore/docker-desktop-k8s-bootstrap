@@ -1,0 +1,87 @@
+# DestinationRule: Define version subsets for canary/blue-green deployments
+#
+# IDEMPOTENCY: Safe to apply multiple times (kubectl apply -f)
+#   - Creates resource if missing
+#   - Updates to desired state if exists
+#
+# PURPOSE: Traffic management with version-based routing
+#   - Defines subsets based on pod labels (version: v1, v2, etc.)
+#   - Used with VirtualService to split traffic between versions
+#   - Enables canary releases, blue-green deployments, A/B testing
+#
+# PREREQUISITES:
+#   - Deployments must have version labels: version: v1, version: v2, etc.
+#   - A Service selecting both versions (app: my-app)
+#   - VirtualService referencing these subsets
+#
+# AMBIENT MODE NOTE:
+#   - Requires waypoint proxy for L7 traffic management
+#   - Without waypoint, DestinationRule traffic policies won't apply
+#   - Ensure waypoint-platform-dev.yaml is applied
+#
+# USAGE:
+#   1. Deploy your app with version labels
+#   2. Apply this DestinationRule
+#   3. Apply canary-virtualservice.yaml with desired weights
+#   4. Adjust weights in VirtualService for gradual rollout
+#
+# CUSTOMIZATION:
+#   - Change 'my-app' to your actual service name
+#   - Add more subsets for multi-version deployments
+#   - Adjust connectionPool for traffic tuning
+#
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: my-app
+  namespace: platform-dev
+  labels:
+    app.kubernetes.io/managed-by: bootstrap-script
+    app.kubernetes.io/part-of: platform-traffic
+spec:
+  # Target service - must match the Kubernetes Service name
+  host: my-app
+  
+  # Traffic policy applied to all subsets (can be overridden per-subset)
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        h2UpgradePolicy: UPGRADE
+        http1MaxPendingRequests: 100
+        http2MaxRequests: 1000
+    # Load balancing for subset selection
+    loadBalancer:
+      simple: ROUND_ROBIN
+  
+  # Version subsets - must match pod labels
+  subsets:
+    # Stable version (v1)
+    - name: stable
+      labels:
+        version: v1
+      # Optional: subset-specific traffic policy
+      trafficPolicy:
+        connectionPool:
+          http:
+            http2MaxRequests: 500
+    
+    # Canary version (v2)
+    - name: canary
+      labels:
+        version: v2
+      trafficPolicy:
+        connectionPool:
+          http:
+            # Lower limits for canary to limit blast radius
+            http2MaxRequests: 100
+    
+    # Blue-green alternative labels
+    # Uncomment if using blue/green naming instead of stable/canary
+    # - name: blue
+    #   labels:
+    #     version: blue
+    # - name: green
+    #   labels:
+    #     version: green

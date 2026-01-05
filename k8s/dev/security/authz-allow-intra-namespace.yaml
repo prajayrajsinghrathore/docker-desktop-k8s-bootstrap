@@ -1,0 +1,47 @@
+# AuthorizationPolicy: Allow traffic within platform-dev namespace
+#
+# IDEMPOTENCY: Safe to apply multiple times (kubectl apply -f)
+#   - Creates resource if missing
+#   - Updates to desired state if exists
+#
+# SECURITY: Zero Trust posture with intra-namespace communication
+#   - Allows pods within platform-dev to communicate with each other
+#   - Traffic must still be mTLS (enforced by PeerAuthentication)
+#   - External traffic (from other namespaces) remains blocked unless explicitly allowed
+#
+# SCOPE: Namespace-level (platform-dev only)
+#   - Empty selector {} means "all workloads in this namespace"
+#   - Only allows traffic FROM principals in platform-dev namespace
+#
+# HOW IT WORKS:
+#   - Istio assigns each pod a SPIFFE identity based on its service account
+#   - Format: cluster.local/ns/<namespace>/sa/<service-account>
+#   - This policy allows any identity from platform-dev namespace
+#
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: platform-dev
+  labels:
+    app.kubernetes.io/managed-by: bootstrap-script
+    app.kubernetes.io/part-of: platform-security
+spec:
+  # Empty selector = applies to all workloads in namespace
+  selector: {}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            # Allow any workload from platform-dev namespace
+            # The * wildcard matches any service account in the namespace
+            namespaces:
+              - platform-dev
+      to:
+        - operation:
+            # Allow all HTTP methods
+            methods:
+              - "*"
+            # Allow all paths
+            paths:
+              - "/*"
