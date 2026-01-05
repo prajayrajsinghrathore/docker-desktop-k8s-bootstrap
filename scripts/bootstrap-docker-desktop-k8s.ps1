@@ -550,14 +550,28 @@ else {
 if ($InstallIngressGateway) {
     Write-Step "Installing/upgrading Istio Ingress Gateway..."
     
-    # For Docker Desktop, use LoadBalancer (maps to localhost) or NodePort
-    Invoke-HelmSafe -Arguments @(
-        "upgrade", "--install", "istio-ingressgateway", "istio/gateway",
-        "-n", $IstioNamespace,
-        "--version", $IstioVersion,
-        "--set", "service.type=LoadBalancer",
-        "--wait", "--timeout", "3m"
-    )
+    if(Test-Path(Join-Path (Get-RepoRoot) "charts/gateway-$IstioVersion.tgz")) {
+        Write-Info "Using local istiod chart from repo"
+        $istiodChartPath = Join-Path (Get-RepoRoot) "charts/gateway-$IstioVersion.tgz"
+        $istiodArgs = @(
+            "upgrade", "--install", "istio-ingressgateway", $istiodChartPath,
+            "-n", $IstioNamespace,
+            "--set", "service.type=LoadBalancer",
+            "--version", $IstioVersion,
+            "--wait", "--timeout", "5m"
+        )
+    }
+    else {
+        # For Docker Desktop, use LoadBalancer (maps to localhost) or NodePort
+        Invoke-HelmSafe -Arguments @(
+            "upgrade", "--install", "istio-ingressgateway", "istio/gateway",
+            "-n", $IstioNamespace,
+            "--version", $IstioVersion,
+            "--set", "service.type=LoadBalancer",
+            "--wait", "--timeout", "3m"
+        )
+    }
+
     Write-Success "Istio Ingress Gateway installed"
     
     # Get gateway service info
