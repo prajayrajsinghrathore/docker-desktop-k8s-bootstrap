@@ -237,12 +237,22 @@ function Get-InstalledIstioVersion {
     if (-not $nsExists) {
         return $null
     }
-    
-    # Check istiod deployment for version label
+
+    # Check istiod deployment for version label (suppress error if not found)
+    $version = $null
+    $deployExists = kubectl get deployment istiod -n $IstioNamespace --ignore-not-found -o name 2>$null
+    if ($deployExists) {
+        $version = kubectl get deployment istiod -n $IstioNamespace -o jsonpath='{.metadata.labels.app\.kubernetes\.io/version}' 2>$null
+        if ($LASTEXITCODE -eq 0 -and $version) {
+            return $version
+        }
+    }
+
+    <#     # Check istiod deployment for version label
     $version = kubectl get deployment istiod -n $IstioNamespace -o jsonpath='{.metadata.labels.app\.kubernetes\.io/version}' 2>$null
     if ($LASTEXITCODE -eq 0 -and $version) {
         return $version
-    }
+    } #>
     
     # Fallback: check Helm release
     $releases = helm list -n $IstioNamespace -o json 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
