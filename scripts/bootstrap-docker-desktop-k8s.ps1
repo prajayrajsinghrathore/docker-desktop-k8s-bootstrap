@@ -457,12 +457,25 @@ New-NamespaceIfMissing $IstioNamespace
 # Install istio-base (CRDs and cluster-wide resources)
 # -----------------------------------------------------------------------------
 Write-Step "Installing/upgrading istio-base..."
-Invoke-HelmSafe -Arguments @(
+if (Test-Path(Join-Path (Get-RepoRoot) "charts/base-$IstioVersion.tgz")) {
+    Write-Info "Using local istio-base chart from repo"
+    $baseChartPath = Join-Path (Get-RepoRoot) "charts/base-$IstioVersion.tgz"
+    Invoke-HelmSafe -Arguments @(
+        "upgrade", "--install", "istio-base", $baseChartPath,
+        "-n", $IstioNamespace,
+        "--wait"
+    )
+}
+else {
+    Write-Info "Using istio/base chart from Helm repository"
+    Invoke-HelmSafe -Arguments @(
     "upgrade", "--install", "istio-base", "istio/base",
     "-n", $IstioNamespace,
     "--version", $IstioVersion,
     "--wait"
-)
+    )
+}
+
 Write-Success "istio-base installed"
 
 # -----------------------------------------------------------------------------
@@ -494,11 +507,22 @@ switch ($DataplaneMode) {
     }
 }
 
-$istiodArgs = @(
+if(Test-Path(Join-Path (Get-RepoRoot) "charts/istiod-$IstioVersion.tgz")) {
+    Write-Info "Using local istiod chart from repo"
+    $istiodChartPath = Join-Path (Get-RepoRoot) "charts/istiod-$IstioVersion.tgz"
+    $istiodArgs = @(
+        "upgrade", "--install", "istiod", $istiodChartPath,
+        "-n", $IstioNamespace
+    ) + $istiodValues + @("--wait", "--timeout", "5m")
+}
+else {
+    Write-Info "Using istio/istiod chart from Helm repository"
+    $istiodArgs = @(
     "upgrade", "--install", "istiod", "istio/istiod",
     "-n", $IstioNamespace,
     "--version", $IstioVersion
-) + $istiodValues + @("--wait", "--timeout", "5m")
+    ) + $istiodValues + @("--wait", "--timeout", "5m")
+}
 
 Invoke-HelmSafe -Arguments $istiodArgs
 Write-Success "istiod installed"
