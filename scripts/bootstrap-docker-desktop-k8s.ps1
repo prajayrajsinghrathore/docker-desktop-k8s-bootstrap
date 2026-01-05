@@ -550,14 +550,28 @@ else {
 if ($InstallIngressGateway) {
     Write-Step "Installing/upgrading Istio Ingress Gateway..."
     
-    # For Docker Desktop, use LoadBalancer (maps to localhost) or NodePort
-    Invoke-HelmSafe -Arguments @(
-        "upgrade", "--install", "istio-ingressgateway", "istio/gateway",
-        "-n", $IstioNamespace,
-        "--version", $IstioVersion,
-        "--set", "service.type=LoadBalancer",
-        "--wait", "--timeout", "3m"
-    )
+    if(Test-Path(Join-Path (Get-RepoRoot) "charts/gateway-$IstioVersion.tgz")) {
+        Write-Info "Using local istiod chart from repo"
+        $istiodChartPath = Join-Path (Get-RepoRoot) "charts/gateway-$IstioVersion.tgz"
+        $istiodArgs = @(
+            "upgrade", "--install", "istio-ingressgateway", $istiodChartPath,
+            "-n", $IstioNamespace,
+            "--set", "service.type=LoadBalancer",
+            "--version", $IstioVersion,
+            "--wait", "--timeout", "5m"
+        )
+    }
+    else {
+        # For Docker Desktop, use LoadBalancer (maps to localhost) or NodePort
+        Invoke-HelmSafe -Arguments @(
+            "upgrade", "--install", "istio-ingressgateway", "istio/gateway",
+            "-n", $IstioNamespace,
+            "--version", $IstioVersion,
+            "--set", "service.type=LoadBalancer",
+            "--wait", "--timeout", "3m"
+        )
+    }
+
     Write-Success "Istio Ingress Gateway installed"
     
     # Get gateway service info
@@ -788,10 +802,15 @@ Write-Step "Istio system pods:"
 kubectl get pods -n $IstioNamespace
 
 Write-Host ""
-Write-Step "Platform namespace pods:"
-kubectl get pods -n $PlatformNamespace 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Write-Info "No pods in $PlatformNamespace yet (expected for fresh setup)"
+if (Test-NamespaceExists $PlatformNamespace) {
+    # This will return an empty list if no pods exist; that's fine.
+    Invoke-KubectlSafe -Arguments @("get", "pods", "-n", $PlatformNamespace) -AllowFailure
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Info "No pods in $PlatformNamespace yet (expected for fresh setup)"
+    }
+} else {
+    Write-Info "Namespace '$PlatformNamespace' not found yet."
 }
 
 Write-Host ""
@@ -814,11 +833,46 @@ kubectl get networkpolicy -n $PlatformNamespace 2>$null
 # Check for istioctl
 if (Test-Command "istioctl") {
     Write-Host ""
-    Write-Step "Running istioctl verify-install..."
-    istioctl verify-install 2>&1 | Write-Host
+    Write-Step "istioctl diagnostics (optional)"
+
+    # Always show version (useful even when commands differ by version)
+    $istioctlVersionOut = & istioctl version 2>&1 | Out-String
+    $istioctlVersionOut | Write-Host
+
+    # Warn if client != expected pinned control plane version
+    if ($istioctlVersionOut -match "client version:\s*([0-9]+\.[0-9]+\.[0-9]+)") {
+        $clientVer = $Matches[1]
+        if ($clientVer -ne $IstioVersion) {
+            Write-Warn "istioctl client ($clientVer) does not match expected IstioVersion ($IstioVersion). Some subcommands may be missing."
+            Write-Info "Recommendation: install istioctl $IstioVersion to match the control plane."
+        }
+    }
+
+    # Only run verify-install if supported by this istioctl build
+    $help = & istioctl help 2>&1 | Out-String
+    if ($help -match "(?m)^\s*verify-install\b") {
+        Write-Step "Running: istioctl verify-install"
+        try {
+            & istioctl verify-install 2>&1 | Write-Host
+        }
+        catch {
+            Write-Warn "istioctl verify-install failed (continuing). Details: $($_.Exception.Message)"
+        }
+    }
+    else {
+        Write-Info "istioctl verify-install not available in this version; skipping."
+        # Optional extra check (safe)
+        try {
+            Write-Step "Running: istioctl proxy-status (may be empty on fresh setup)"
+            & istioctl proxy-status 2>&1 | Write-Host
+        }
+        catch {
+            Write-Warn "istioctl proxy-status failed (continuing)."
+        }
+    }
 }
 else {
-    Write-Info "istioctl not found - skipping verify-install (optional tool)"
+    Write-Info "istioctl not found - skipping istioctl checks (optional tool)"
 }
 
 # ==============================================================================
