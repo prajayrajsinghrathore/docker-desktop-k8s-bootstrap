@@ -1,0 +1,55 @@
+# AuthorizationPolicy: Allow traffic from Istio Ingress Gateway
+#
+# IDEMPOTENCY: Safe to apply multiple times (kubectl apply -f)
+#   - Creates resource if missing
+#   - Updates to desired state if exists
+#
+# USAGE: Apply this ONLY when ingress gateway is installed
+#   - Bootstrap applies this when -InstallIngressGateway is used
+#   - Not needed for port-forward or NodePort access patterns
+#
+# SECURITY: Controlled ingress path
+#   - Only allows traffic FROM the istio-ingressgateway service account
+#   - Does not allow arbitrary external traffic
+#   - Gateway itself handles edge security (TLS termination, rate limiting, etc.)
+#
+# SCOPE: Namespace-level (platform-dev only)
+#   - Empty selector {} means "all workloads in this namespace"
+#   - Only ingress gateway traffic is allowed by this policy
+#
+# PREREQUISITE: Ingress gateway must be installed in istio-system
+#   - Default service account: istio-ingressgateway-service-account
+#
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-from-ingressgateway
+  namespace: platform-dev
+  labels:
+    app.kubernetes.io/managed-by: bootstrap-script
+    app.kubernetes.io/part-of: platform-security
+spec:
+  # Empty selector = applies to all workloads in namespace
+  selector: {}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            # Allow traffic from istio ingress gateway
+            # This matches the gateway's SPIFFE identity
+            principals:
+              - cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account
+      to:
+        - operation:
+            # Allow standard HTTP methods used by ingress
+            methods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - HEAD
+              - OPTIONS
+            # Allow all paths - gateway routes handle path filtering
+            paths:
+              - "/*"

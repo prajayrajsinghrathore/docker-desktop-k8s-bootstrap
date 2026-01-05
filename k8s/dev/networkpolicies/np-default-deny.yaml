@@ -1,0 +1,45 @@
+# NetworkPolicy: Default deny all ingress and egress in platform-dev
+#
+# IDEMPOTENCY: Safe to apply multiple times (kubectl apply -f)
+#   - Creates resource if missing
+#   - Updates to desired state if exists
+#
+# SECURITY: Defense in depth
+#   - Network-level isolation (CNI enforced, works without Istio)
+#   - Denies ALL ingress and egress traffic by default
+#   - Istio AuthorizationPolicies provide application-layer (L7) control
+#   - NetworkPolicies provide network-layer (L3/L4) control
+#
+# WHY BOTH ISTIO AND NETWORK POLICIES?
+#   - Defense in depth: multiple layers of security
+#   - NetworkPolicies work even if Istio sidecars fail
+#   - NetworkPolicies can block traffic before it reaches the proxy
+#   - Different enforcement points catch different attack vectors
+#
+# SCOPE: Namespace-level (platform-dev only)
+#   - podSelector: {} means "all pods in this namespace"
+#   - Empty ingress/egress arrays = deny all
+#
+# IMPORTANT: This policy alone blocks ALL traffic. Combine with:
+#   - np-allow-dns.yaml (required for service discovery)
+#   - np-allow-internet-egress.yaml (optional, for external access)
+#
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: platform-dev
+  labels:
+    app.kubernetes.io/managed-by: bootstrap-script
+    app.kubernetes.io/part-of: platform-security
+spec:
+  # Empty podSelector = applies to all pods in namespace
+  podSelector: {}
+  # Specifying both Ingress and Egress makes this a "default deny all" policy
+  policyTypes:
+    - Ingress
+    - Egress
+  # Empty arrays = no traffic allowed
+  # Other NetworkPolicies will add specific allow rules
+  ingress: []
+  egress: []

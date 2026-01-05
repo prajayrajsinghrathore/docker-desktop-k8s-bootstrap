@@ -1,0 +1,28 @@
+# PeerAuthentication: Enforce mTLS STRICT in platform-dev namespace
+#
+# IDEMPOTENCY: Safe to apply multiple times (kubectl apply -f)
+#   - Creates resource if missing
+#   - Updates to desired state if exists
+#
+# SECURITY: Zero Trust posture
+#   - All pod-to-pod traffic must be mTLS encrypted
+#   - No plaintext traffic allowed within the mesh
+#   - Sidecars (or ztunnel in ambient mode) enforce this automatically
+#
+# SCOPE: Namespace-level (platform-dev only)
+#   - Does not affect other namespaces
+#   - Workloads must be enrolled in the mesh to communicate
+#
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: platform-dev
+  labels:
+    app.kubernetes.io/managed-by: bootstrap-script
+    app.kubernetes.io/part-of: platform-security
+spec:
+  # STRICT: Require mTLS for all traffic
+  # Options: STRICT | PERMISSIVE | DISABLE | UNSET
+  mtls:
+    mode: STRICT
